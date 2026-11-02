@@ -14,6 +14,65 @@ interface RunningInstance {
   route: RouteConfig;
 }
 
+export function resolveProxyUrl(targetUrlStr: string, incomingUrlStr: string): {
+  targetOrigin: string;
+  resolvedPath: string;
+  fullTargetUrl: string;
+} {
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(targetUrlStr);
+  } catch {
+    targetUrl = new URL(`http://${targetUrlStr}`);
+  }
+
+  const targetOrigin = targetUrl.origin;
+  const targetPath = targetUrl.pathname;
+
+  // Parse incoming URL against a dummy base
+  const dummyBase = 'http://fetcher.internal';
+  const incoming = new URL(incomingUrlStr || '/', dummyBase);
+  const incomingPath = incoming.pathname;
+
+  let finalPath = '';
+  const targetEndsWithFile = /\.[a-zA-Z0-9]+$/.test(targetPath);
+
+  if (incomingPath === '/' || incomingPath === '') {
+    finalPath = targetPath === '' ? '/' : targetPath;
+  } else if (targetPath === '/' || targetPath === '') {
+    finalPath = incomingPath;
+  } else if (targetEndsWithFile) {
+    const filename = targetPath.slice(targetPath.lastIndexOf('/'));
+    if (incomingPath === filename || incomingPath === '/' || incomingPath === '') {
+      finalPath = targetPath;
+    } else {
+      const targetDir = targetPath.slice(0, targetPath.lastIndexOf('/'));
+      finalPath = targetDir + (incomingPath.startsWith('/') ? incomingPath : `/${incomingPath}`);
+    }
+  } else {
+    const cleanTarget = targetPath.endsWith('/') ? targetPath.slice(0, -1) : targetPath;
+    const cleanIncoming = incomingPath.startsWith('/') ? incomingPath : `/${incomingPath}`;
+    finalPath = cleanTarget + cleanIncoming;
+  }
+
+  // Merge query parameters (target parameters first, incoming can add or override)
+  const targetParams = new URLSearchParams(targetUrl.search);
+  const incomingParams = new URLSearchParams(incoming.search);
+
+  for (const [k, v] of incomingParams.entries()) {
+    targetParams.set(k, v);
+  }
+
+  const qs = targetParams.toString() ? `?${targetParams.toString()}` : '';
+  const resolvedPath = finalPath + qs;
+
+  return {
+    targetOrigin,
+    resolvedPath,
+    fullTargetUrl: `${targetOrigin}${resolvedPath}`,
+  };
+}
+
 export class ProxyManager {
   private instances = new Map<string, RunningInstance>();
   private stats = new Map<string, RouteStats>();
@@ -71,8 +130,11 @@ export class ProxyManager {
       await this.stopRoute(route.id);
     }
 
+    // Resolve base target origin
+    const { targetOrigin } = resolveProxyUrl(route.targetUrl, '/');
+
     const proxy = httpProxy.createProxyServer({
-      target: route.targetUrl,
+      target: targetOrigin,
       changeOrigin: route.headers.changeOrigin,
       ws: true,
       secure: false, // Dev proxy: allow self-signed certificates
@@ -84,6 +146,13 @@ export class ProxyManager {
       (req as any)._startTime = startTime;
       const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
+      const originalIncomingUrl = req.url || '/';
+      (req as any)._originalUrl = originalIncomingUrl;
+      const { resolvedPath, fullTargetUrl } = resolveProxyUrl(route.targetUrl, originalIncomingUrl);
+
+      // Rewrite req.url to target backend resolved path
+      req.url = resolvedPath;
+
       // 1. Check for Preflight OPTIONS request
       if (route.cors.enabled && req.method === 'OPTIONS') {
         const handled = handlePreflight(req, res, route.cors);
@@ -94,8 +163,8 @@ export class ProxyManager {
             routeName: route.name,
             timestamp: startTime,
             method: 'OPTIONS',
-            url: req.url || '/',
-            targetUrl: `${route.targetUrl}${req.url || '/'}`,
+            url: originalIncomingUrl,
+            targetUrl: fullTargetUrl,
             status: 204,
             durationMs: Date.now() - startTime,
             requestHeaders: req.headers,
@@ -133,9 +202,7 @@ export class ProxyManager {
         });
       }
 
-      let cookiesModified = false;
-
-      // 3. Intercept response
+      // 3. Forward request to target
       proxy.web(req, res, {}, (err) => {
         // Fallback error handler
         if (!res.headersSent) {
@@ -143,7 +210,7 @@ export class ProxyManager {
           res.writeHead(502, { 'Content-Type': 'application/json' });
           const errorMsg = {
             error: 'Bad Gateway (Fetcher Dev Proxy)',
-            message: `Could not connect to target backend at ${route.targetUrl}`,
+            message: `Could not connect to target backend at ${fullTargetUrl}`,
             details: err.message,
             hint: 'Make sure your target backend container/service is running and accessible from the host.',
           };
@@ -157,8 +224,8 @@ export class ProxyManager {
           routeName: route.name,
           timestamp: startTime,
           method: req.method || 'GET',
-          url: req.url || '/',
-          targetUrl: `${route.targetUrl}${req.url || '/'}`,
+          url: originalIncomingUrl,
+          targetUrl: fullTargetUrl,
           status: 502,
           durationMs: duration,
           requestHeaders: req.headers,
@@ -173,6 +240,9 @@ export class ProxyManager {
 
     // 4. WebSocket Upgrade Support
     server.on('upgrade', (req, socket, head) => {
+      const { resolvedPath } = resolveProxyUrl(route.targetUrl, req.url || '/');
+      req.url = resolvedPath;
+
       proxy.ws(req, socket, head, {}, (err) => {
         console.error(`[ProxyManager WS Error] Route ${route.name}:`, err.message);
         socket.destroy();
@@ -207,8 +277,10 @@ export class ProxyManager {
 
       // Listen to response finish to log
       res.on('finish', () => {
-        const duration = Date.now() - (req as any)._startTime || 0;
+        const duration = Date.now() - ((req as any)._startTime || 0);
         const statusCode = res.statusCode || proxyRes.statusCode || 200;
+        const originalUrl = (req as any)._originalUrl || req.url || '/';
+        const { fullTargetUrl } = resolveProxyUrl(route.targetUrl, originalUrl);
 
         this.recordLog({
           id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -216,8 +288,8 @@ export class ProxyManager {
           routeName: route.name,
           timestamp: Date.now() - duration,
           method: req.method || 'GET',
-          url: req.url || '/',
-          targetUrl: `${route.targetUrl}${req.url || '/'}`,
+          url: originalUrl,
+          targetUrl: fullTargetUrl,
           status: statusCode,
           durationMs: duration,
           requestHeaders: req.headers,
