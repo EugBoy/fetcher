@@ -2,10 +2,6 @@
 node_modules/
 client/node_modules/
 
-# Production builds
-client/dist/
-dist/
-
 # Logs
 *.log
 npm-debug.log*

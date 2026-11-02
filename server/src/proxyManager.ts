@@ -234,10 +234,10 @@ export class ProxyManager {
       console.error(`[ProxyManager Error] Route ${route.name} (${route.targetUrl}):`, err.message);
     });
 
-    // Start listening on the allocated port
+    // Start listening on the allocated port (0.0.0.0 to accept connections from LAN/Docker)
     await new Promise<void>((resolve, reject) => {
-      server.listen(route.port, () => {
-        console.log(`[Fetcher] Proxy for "${route.name}" running on http://localhost:${route.port} -> ${route.targetUrl}`);
+      server.listen(route.port, '0.0.0.0', () => {
+        console.log(`[Fetcher] Proxy for "${route.name}" running on port ${route.port} -> ${route.targetUrl}`);
         this.instances.set(route.id, { server, proxy, route });
         resolve();
       });
