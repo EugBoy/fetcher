@@ -33,7 +33,8 @@ export const RouteCard: React.FC<RouteCardProps> = ({
   const [pingLoading, setPingLoading] = useState(false);
   const [pingResult, setPingResult] = useState<{ reachable: boolean; durationMs?: number; status?: number; error?: string } | null>(null);
 
-  const proxyUrl = `http://localhost:${route.port}`;
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const proxyUrl = `http://${currentHost}:${route.port}`;
   const envSnippet = `VITE_API_URL=${proxyUrl}`;
 
   const copyToClipboard = (text: string, type: 'port' | 'env') => {

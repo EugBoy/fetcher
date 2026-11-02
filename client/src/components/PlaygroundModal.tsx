@@ -42,7 +42,8 @@ export const PlaygroundModal: React.FC<PlaygroundModalProps> = ({
     setError(null);
     setResult(null);
 
-    const fullUrl = `http://localhost:${currentRoute.port}${path.startsWith('/') ? path : `/${path}`}`;
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    const fullUrl = `http://${currentHost}:${currentRoute.port}${path.startsWith('/') ? path : `/${path}`}`;
     const startTime = Date.now();
 
     try {
@@ -157,7 +158,7 @@ export const PlaygroundModal: React.FC<PlaygroundModalProps> = ({
                   fontFamily: 'var(--font-mono)',
                 }}
               >
-                http://localhost:{currentRoute?.port || 5001}
+                http://{typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:{currentRoute?.port || 5001}
               </span>
               <input
                 type="text"
