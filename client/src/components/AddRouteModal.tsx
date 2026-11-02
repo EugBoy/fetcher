@@ -36,6 +36,18 @@ export const AddRouteModal: React.FC<AddRouteModalProps> = ({
   // Change Origin
   const [changeOrigin, setChangeOrigin] = useState(true);
 
+  const fetchNextPort = async () => {
+    try {
+      const res = await fetch('/api/next-port');
+      const data = await res.json();
+      if (data.port) {
+        setPort(data.port);
+      }
+    } catch {
+      setPort(5001);
+    }
+  };
+
   useEffect(() => {
     if (editRoute) {
       setName(editRoute.name);
@@ -65,18 +77,6 @@ export const AddRouteModal: React.FC<AddRouteModalProps> = ({
       setChangeOrigin(true);
     }
   }, [editRoute, isOpen]);
-
-  const fetchNextPort = async () => {
-    try {
-      const res = await fetch('/api/next-port');
-      const data = await res.json();
-      if (data.port) {
-        setPort(data.port);
-      }
-    } catch {
-      setPort(5001);
-    }
-  };
 
   if (!isOpen) return null;
 
