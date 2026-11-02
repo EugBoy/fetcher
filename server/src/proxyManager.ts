@@ -3,7 +3,7 @@ import net from 'node:net';
 import httpProxy from 'http-proxy';
 import { RouteConfig, RequestLog, RouteStats } from './types.js';
 import { handlePreflight, applyCorsResponseHeaders } from './corsEngine.js';
-import { sanitizeCookies } from './cookieEngine.js';
+import { sanitizeCookies, parseSetCookies, parseCookieHeader, formatCookieHeader } from './cookieEngine.js';
 
 type LogCallback = (log: RequestLog) => void;
 type StatsCallback = (routeId: string, stats: RouteStats) => void;
@@ -77,12 +77,26 @@ export class ProxyManager {
   private instances = new Map<string, RunningInstance>();
   private stats = new Map<string, RouteStats>();
   private logs: RequestLog[] = [];
+  private cookieJars = new Map<string, Map<string, string>>();
   private maxLogs: number;
   private onLogCallbacks: LogCallback[] = [];
   private onStatsCallbacks: StatsCallback[] = [];
 
   constructor(maxLogs = 300) {
     this.maxLogs = maxLogs;
+  }
+
+  public getJar(routeId: string): Map<string, string> {
+    let jar = this.cookieJars.get(routeId);
+    if (!jar) {
+      jar = new Map();
+      this.cookieJars.set(routeId, jar);
+    }
+    return jar;
+  }
+
+  public clearJar(routeId: string): void {
+    this.cookieJars.delete(routeId);
   }
 
   public onLog(cb: LogCallback): void {
@@ -202,7 +216,30 @@ export class ProxyManager {
         });
       }
 
-      // 3. Forward request to target
+      // 3. Cookie Jar Forwarding:
+      // If browser didn't send cookies back (e.g. cross-origin HTTP or missing withCredentials),
+      // inject stored session cookies from Fetcher Jar into backend request!
+      let jarInjected = false;
+      if (route.cookies.enabled) {
+        const jar = this.getJar(route.id);
+        if (jar.size > 0) {
+          const incomingCookies = parseCookieHeader(req.headers.cookie);
+          let modified = false;
+          for (const [k, v] of jar.entries()) {
+            if (!incomingCookies.has(k)) {
+              incomingCookies.set(k, v);
+              modified = true;
+            }
+          }
+          if (modified) {
+            req.headers.cookie = formatCookieHeader(incomingCookies);
+            jarInjected = true;
+          }
+        }
+      }
+      (req as any)._jarInjected = jarInjected;
+
+      // 4. Forward request to target
       proxy.web(req, res, {}, (err) => {
         // Fallback error handler
         if (!res.headersSent) {
@@ -258,14 +295,21 @@ export class ProxyManager {
         applyCorsResponseHeaders(req, res, route.cors);
       }
 
-      // Sanitize / Rewrite Cookies
+      // Sanitize / Rewrite Cookies & update Server-Side Cookie Jar
       if (route.cookies.enabled && proxyRes.headers['set-cookie']) {
-        const result = sanitizeCookies(proxyRes.headers['set-cookie'], route.cookies);
+        const raw = proxyRes.headers['set-cookie'];
+        const jar = this.getJar(route.id);
+        const parsed = parseSetCookies(raw);
+        for (const c of parsed) {
+          jar.set(c.name, c.value);
+        }
+
+        const result = sanitizeCookies(raw, route.cookies);
         if (result.cookies) {
           proxyRes.headers['set-cookie'] = result.cookies;
           res.setHeader('set-cookie', result.cookies);
         }
-        cookiesModified = result.modified;
+        cookiesModified = result.modified || parsed.length > 0;
       }
 
       // Inject custom response headers
@@ -281,6 +325,7 @@ export class ProxyManager {
         const statusCode = res.statusCode || proxyRes.statusCode || 200;
         const originalUrl = (req as any)._originalUrl || req.url || '/';
         const { fullTargetUrl } = resolveProxyUrl(route.targetUrl, originalUrl);
+        const jarInjected = (req as any)._jarInjected || false;
 
         this.recordLog({
           id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -295,7 +340,7 @@ export class ProxyManager {
           requestHeaders: req.headers,
           responseHeaders: proxyRes.headers,
           corsApplied: route.cors.enabled,
-          cookiesModified,
+          cookiesModified: cookiesModified || jarInjected,
         });
 
         this.updateRouteStats(route.id, statusCode);

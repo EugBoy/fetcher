@@ -72,6 +72,15 @@ export const RouteCard: React.FC<RouteCardProps> = ({
     }
   };
 
+  const handleClearCookies = async () => {
+    try {
+      await fetch(`/api/routes/${route.id}/clear-cookies`, { method: 'POST' });
+      onShowToast(`Сессионные куки для "${route.name}" сброшены`);
+    } catch {
+      onShowToast('Ошибка сброса кук');
+    }
+  };
+
   const isRunning = route.isRunning ?? route.enabled;
 
   return (
@@ -88,6 +97,14 @@ export const RouteCard: React.FC<RouteCardProps> = ({
         </div>
 
         <div className="route-card-actions">
+          <button
+            className="btn-icon"
+            onClick={handleClearCookies}
+            title="Сбросить сохранённые cookies/сессию в Cookie Jar"
+          >
+            <Cookie size={15} color="#818cf8" />
+          </button>
+
           <button
             className="btn-icon"
             onClick={handleTestPing}

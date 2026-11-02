@@ -181,6 +181,13 @@ export function createApiRouter(store: ConfigStore, proxyManager: ProxyManager) 
     }
   });
 
+  // Clear route session cookies from jar
+  router.post('/routes/:id/clear-cookies', (req, res) => {
+    const { id } = req.params;
+    proxyManager.clearJar(id);
+    res.json({ success: true, message: `Session cookies cleared for route ${id}` });
+  });
+
   // Delete route
   router.delete('/routes/:id', async (req, res) => {
     try {
