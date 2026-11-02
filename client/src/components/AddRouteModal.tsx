@@ -209,7 +209,7 @@ export const AddRouteModal: React.FC<AddRouteModalProps> = ({
                   </button>
                 </div>
                 <span className="form-hint">
-                  Фронтенд будет подключаться к <code>http://localhost:{port || 5001}</code>
+                  Фронтенд будет подключаться к <code>http://{typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:{port || 5001}</code>
                 </span>
               </div>
             </div>
