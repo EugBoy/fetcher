@@ -1,0 +1,67 @@
+{
+  "managementPort": 4000,
+  "autoStartProxies": true,
+  "maxLogsInMemory": 300,
+  "routes": [
+    {
+      "id": "demo-pokeapi",
+      "name": "Sample Backend (JSONPlaceholder)",
+      "targetUrl": "https://jsonplaceholder.typicode.com",
+      "port": 5001,
+      "enabled": true,
+      "cors": {
+        "enabled": true,
+        "allowCredentials": true,
+        "allowOrigin": "echo",
+        "allowMethods": "GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD",
+        "allowHeaders": "*",
+        "exposeHeaders": "*",
+        "maxAge": 86400
+      },
+      "cookies": {
+        "enabled": true,
+        "stripSecure": true,
+        "rewriteDomain": true,
+        "targetDomain": "",
+        "sameSite": "lax"
+      },
+      "headers": {
+        "changeOrigin": true,
+        "customRequestHeaders": {},
+        "customResponseHeaders": {}
+      },
+      "createdAt": 1793618246230,
+      "updatedAt": 1793618246230
+    },
+    {
+      "id": "route_1793618696505_y9s6",
+      "name": "DummyJSON API",
+      "targetUrl": "https://dummyjson.com",
+      "port": 5002,
+      "enabled": true,
+      "cors": {
+        "enabled": true,
+        "allowCredentials": true,
+        "allowOrigin": "echo",
+        "allowMethods": "GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD",
+        "allowHeaders": "*",
+        "exposeHeaders": "*",
+        "maxAge": 86400
+      },
+      "cookies": {
+        "enabled": true,
+        "stripSecure": true,
+        "rewriteDomain": true,
+        "targetDomain": "",
+        "sameSite": "lax"
+      },
+      "headers": {
+        "changeOrigin": true,
+        "customRequestHeaders": {},
+        "customResponseHeaders": {}
+      },
+      "createdAt": 1793618696505,
+      "updatedAt": 1793618696505
+    }
+  ]
+}
